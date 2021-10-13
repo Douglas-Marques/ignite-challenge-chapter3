@@ -1,9 +1,11 @@
 import { GetStaticPaths, GetStaticProps } from 'next'
 import Head from "next/head"
-import { RichText } from "prismic-dom"
 import { format } from 'date-fns'
+import ptBR from 'date-fns/locale/pt-BR'
 import Prismic from '@prismicio/client'
+import { RichText } from 'prismic-dom'
 import { FiCalendar, FiUser, FiClock } from 'react-icons/fi'
+import { useRouter } from 'next/router'
 
 import { getPrismicClient } from '../../services/prismic'
 
@@ -32,8 +34,22 @@ interface PostProps {
 }
 
 export default function Post({ post }: PostProps) {
-  function timeToRead() {
-    return '5 min'
+
+  const router = useRouter();
+  if (router.isFallback) {
+    return <div>Carregando...</div>;
+  }
+
+  const readingTime = post.data.content.reduce((acc, content) => {
+    const textBody = RichText.asText(content.body);
+    const numberWords = textBody.trim().split(/\s+/).length;
+
+    const result = Math.ceil(numberWords / 200);
+    return acc + result;
+  }, 0);
+
+  function countWords(str: String) {
+    return str;
   }
 
   return (
@@ -46,11 +62,13 @@ export default function Post({ post }: PostProps) {
       <main className={commonStyles.container}>
         <article className={styles.post}>
           <h1>{post.data.title}</h1>
+
           <div className={styles.info}>
-            <time><FiCalendar size={22} />&nbsp;{post.first_publication_date}</time>
+            <time><FiCalendar size={22} />&nbsp;{format(new Date(post.first_publication_date), 'dd MMM yyyy', { locale: ptBR })}</time>
             <span><FiUser size={22} />&nbsp;{post.data.author}</span>
-            <span><FiClock size={22} />&nbsp;{timeToRead()}</span>
+            <span><FiClock size={22} />&nbsp;{readingTime ?? 1} min</span>
           </div>
+
           {post.data.content.map(content => (
             <div key={content.heading}>
               <h3>{content.heading}</h3>
@@ -84,20 +102,35 @@ export const getStaticPaths: GetStaticPaths = async () => {
 }
 
 export const getStaticProps: GetStaticProps = async context => {
-  const prismic = getPrismicClient()
   const { slug } = context.params
-  const response = await prismic.getByUID('posts', String(slug), {})
 
-  const post: Post = {
-    first_publication_date: format(new Date(response.first_publication_date), 'dd MMM yyyy'),
-    data: {
-      ...response.data
-    }
+  const prismic = getPrismicClient()
+
+  const response = await prismic.getByUID('posts', String(slug), {})
+  if (!response) {
+    return {
+      notFound: true,
+    };
   }
+
+  const post = {
+    first_publication_date: response.first_publication_date,
+    last_publication_date: response.last_publication_date,
+    uid: response.uid,
+    data: {
+      title: response.data.title,
+      subtitle: response.data.subtitle,
+      banner: {
+        url: response.data.banner.url,
+      },
+      author: response.data.author,
+      content: response.data.content,
+    },
+  };
 
   return {
     props: {
       post
     }
   }
-};
+}
